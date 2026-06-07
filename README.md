@@ -9,7 +9,6 @@ Two complete workflows are included:
 | **Task Manager Agent** | Chat / Telegram | Add, list, complete, and delete tasks via natural language |
 | **Exam Question Paper Bot** | Telegram | Send a topic → AI generates questions → returns a PDF |
 
-> 🌐 **Live Server (Reference):** [`https://task-management-898555939324.europe-west1.run.app/docs`](https://task-management-898555939324.europe-west1.run.app/docs)
 
 ---
 
