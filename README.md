@@ -74,10 +74,8 @@ Telegram Message
 ## 📁 Repository Structure
 
 ```
-├── main.py                        # FastAPI server — 4 task endpoints
 ├── task-manager-agent.json        # N8N Workflow 1 — Task Manager AI Agent
 ├── exam-question-bot.json         # N8N Workflow 2 — Telegram Exam Paper Bot
-└── README.md
 ```
 
 ---
