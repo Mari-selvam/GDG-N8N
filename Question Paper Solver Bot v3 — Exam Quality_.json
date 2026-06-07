@@ -1,0 +1,276 @@
+{
+  "name": "Question Paper Solver Bot v3 — Exam Quality",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        480
+      ],
+      "id": "26cd98fe-6785-4b55-a2ac-854c999414dc",
+      "name": "Telegram Trigger",
+      "webhookId": "36f2ac60-8cf1-457f-9683-8b38dea6300d",
+      "credentials": {
+        "telegramApi": {
+          "id": "7O55SitZRzFhorKF",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.from.id }}",
+        "text": "=📄 Question paper received! Generating exam-quality answers with diagrams and tips...\n\n⏳ This may take 1–2 minutes for a full paper.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1152,
+        304
+      ],
+      "id": "caae700e-99b2-4502-bb51-e713458b924c",
+      "name": "Send Waiting Message",
+      "webhookId": "fdaa20ec-ae27-4bb4-b0c5-76e0a200baff",
+      "credentials": {
+        "telegramApi": {
+          "id": "7O55SitZRzFhorKF",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.photo ? $json.message.photo[$json.message.photo.length - 1].file_id : $json.message.document.file_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        656
+      ],
+      "id": "04343a55-fda4-4e0b-a833-3bf8ebf85764",
+      "name": "Get a file",
+      "webhookId": "f51c2f6e-c0aa-46de-a844-7d2244b9ae60",
+      "credentials": {
+        "telegramApi": {
+          "id": "7O55SitZRzFhorKF",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "text": "You are a precise document scanner. Your ONLY task is to extract every question from this exam paper image — nothing else.\n\nRULES:\n- Extract every question exactly as it appears. Do not rephrase, simplify, or modify any wording.\n- Preserve the original question number (Q1, Q2, 1a, 1b, Part A, etc.)\n- Capture the mark value next to each question — it may appear as (2), [5 marks], (13M), etc.\n- If questions have sub-parts (a, b, c), list each sub-part separately with its own mark value.\n- If the mark value is not shown for a sub-part but is shown for the full question, note it at the parent level.\n- Do not add answers, hints, explanations, or any commentary.\n- Do not skip any question, even if it looks repeated or simple.\n\nOUTPUT FORMAT — return ONLY this structure, nothing else:\n\nQ1. [Exact question text] | [X] marks\nQ2a. [Exact question text] | [X] marks\nQ2b. [Exact question text] | [X] marks\n...\n\nIf you cannot read a question clearly due to image quality, write:\nQ[N]. [UNCLEAR — low image quality] | [X] marks",
+        "inputType": "binary",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1136,
+        720
+      ],
+      "id": "522b8d9b-a5c2-49ac-9eff-d3d813043e10",
+      "name": "Analyze Question Paper",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 4000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "txHH9FO9QnEElQiK",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ╔══════════════════════════════════════════════════════════════════╗\n// ║  FIX: [object Object] bug                                        ║\n// ║  Root cause: item.content is an OBJECT { parts:[{text:\"...\"}] } ║\n// ║  not a string — interpolating it gives \"[object Object]\"         ║\n// ║  Fix: explicitly walk the parts array to get the text string     ║\n// ╚══════════════════════════════════════════════════════════════════╝\nconst PDFSHIFT_API_KEY = 'sk_99fc87772fa9db247ec758733dfb977736f4dc80';\n// ── 1. Extract Gemini text — handles ALL output shapes ─────────────────────\n//\n//  Gemini node can arrive in 3 different shapes depending on\n//  whether \"Simplify Output\" is ON or OFF:\n//\n//  Shape A — Simplify ON   → item.content = \"the html string\"\n//  Shape B — Simplify OFF  → item.content = { parts:[{ text:\"html\" }] }\n//  Shape C — Raw response  → item.candidates[0].content.parts[0].text\n//\nconst item = $input.item.json;\n\nlet content;\n\nif (typeof item.content === 'string' && item.content.trim() !== '') {\n  // Shape A — already a plain string ✓\n  content = item.content;\n\n} else if (item.content?.parts?.[0]?.text) {\n  // Shape B — content is an object with parts array  ← THIS was the bug\n  content = item.content.parts[0].text;\n\n} else if (item.candidates?.[0]?.content?.parts?.[0]?.text) {\n  // Shape C — full raw Gemini API response\n  content = item.candidates[0].content.parts[0].text;\n\n} else if (typeof item.text === 'string' && item.text.trim() !== '') {\n  // Fallback — some node versions output .text directly\n  content = item.text;\n\n} else {\n  // Nothing usable found — surface a readable error in the PDF\n  content = `<div class=\"question-block\">\n    <div class=\"answer-body\">\n      <p><strong>Content extraction failed.</strong></p>\n      <p>Gemini returned an unexpected format. Raw value received:</p>\n      <pre>${JSON.stringify(item, null, 2).slice(0, 500)}</pre>\n    </div>\n  </div>`;\n}\n\n// ── 2. Build date ──────────────────────────────────────────────────────────\nconst date = new Date().toLocaleDateString('en-IN', {\n  year: 'numeric', month: 'long', day: 'numeric'\n});\n\n// ── 3. Build exam-quality answer sheet HTML ────────────────────────────────\nconst html = `<!DOCTYPE html>\n<html lang='en'>\n<head>\n  <meta charset='UTF-8'>\n  <meta name='viewport' content='width=device-width, initial-scale=1.0'>\n  <style>\n    @page { size: A4; margin: 40px 50px; }\n    * { box-sizing: border-box; }\n    body { font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.8; color: #1a1a1a; background: #fff; margin: 0; padding: 0; }\n    .page-header { text-align: center; padding-bottom: 18px; border-bottom: 3px solid #0d9488; margin-bottom: 28px; }\n    .page-header h1 { color: #0d9488; font-size: 24px; margin: 0 0 4px; }\n    .page-header .meta { color: #6b7280; font-size: 12px; margin: 0; }\n    .question-block, .q-block { margin-bottom: 28px; border: 1.5px solid #d1fae5; border-radius: 8px; overflow: hidden; page-break-inside: avoid; }\n    .question-header, .q-header { display: flex; justify-content: space-between; align-items: flex-start; background: #f0fdfa; padding: 12px 16px; border-bottom: 2px solid #0d9488; gap: 12px; }\n    .question-header h2, .q-header h2 { color: #0d9488; font-size: 14px; font-weight: 700; margin: 0; flex: 1; line-height: 1.5; }\n    .mark-badge, .mark-tag { background: #0d9488; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }\n    .answer-body, .q-answer { padding: 14px 18px; }\n    .answer-body p, .q-answer p { margin: 6px 0 10px; font-size: 14px; }\n    .answer-body h3, .q-answer h3 { color: #0d9488; font-size: 13px; margin: 14px 0 6px; font-weight: 700; }\n    .answer-body h4, .q-answer h4 { color: #374151; font-size: 13px; margin: 10px 0 4px; font-weight: 600; }\n    .answer-body ul, .answer-body ol,\n    .q-answer ul, .q-answer ol { margin: 6px 0 10px 22px; padding: 0; }\n    .answer-body li, .q-answer li { margin: 3px 0; font-size: 14px; }\n    .formula { display: block; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 10px 0; font-family: 'Courier New', monospace; font-size: 14px; color: #1d4ed8; page-break-inside: avoid; }\n    span.formula { display: inline; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 1px 5px; font-family: 'Courier New', monospace; font-size: 13px; color: #1d4ed8; }\n    .diagram-container { margin: 14px 0; text-align: center; page-break-inside: avoid; }\n    .diagram-label { font-size: 12px; color: #6b7280; margin-top: 4px; font-style: italic; }\n    svg { max-width: 100%; height: auto; border: 1px solid #d1fae5; border-radius: 6px; background: #fafafa; display: block; margin: 12px auto; }\n    table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 13px; page-break-inside: avoid; }\n    th { background: #0d9488; color: #fff; padding: 8px 12px; text-align: left; font-weight: 600; }\n    td { border: 1px solid #d1fae5; padding: 7px 12px; }\n    tr:nth-child(even) td { background: #f0fdfa; }\n    .student-tip { display: flex; gap: 10px; align-items: flex-start; background: #fffbeb; border-top: 2px dashed #f59e0b; padding: 12px 16px; font-size: 13px; color: #78350f; }\n    .student-tip .tip-icon { font-size: 18px; flex-shrink: 0; line-height: 1.4; }\n    .student-tip strong { color: #92400e; }\n    .student-tip ul { margin: 6px 0 0 18px; padding: 0; }\n    .student-tip li { margin: 3px 0; }\n    .definition { background: #f0fdfa; border-left: 3px solid #0d9488; padding: 8px 12px; margin: 8px 0; font-style: italic; border-radius: 0 4px 4px 0; }\n    pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }\n    .page-footer { margin-top: 36px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; color: #9ca3af; font-size: 11px; }\n  </style>\n</head>\n<body>\n  <div class='page-header'>\n    <h1>Exam Answer Sheet</h1>\n    <p class='meta'>Generated on ${date} &nbsp;&middot;&nbsp; AI Study Assistant &nbsp;&middot;&nbsp; Verify answers before your exam</p>\n  </div>\n\n  ${content}\n\n  <div class='page-footer'>Auto-generated study aid — cross-check formulas and diagrams with your textbook.</div>\n</body>\n</html>`;\n\n// ── 4. Convert HTML → PDF via PDFShift ────────────────────────────────────\nconst pdfResponse = await this.helpers.httpRequest({\n  method:  'POST',\n  url:     'https://api.pdfshift.io/v3/convert/pdf',\n  headers: {\n    'X-API-Key':    PDFSHIFT_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    source:    html,\n    landscape: false,\n    use_print: true\n  }),\n  encoding:               'arraybuffer',\n  returnFullResponse:     true,\n  ignoreHttpStatusErrors: true\n});\n\n// ── 5. Check PDFShift response ─────────────────────────────────────────────\nif (pdfResponse.statusCode < 200 || pdfResponse.statusCode >= 300) {\n  const errMsg = Buffer.from(pdfResponse.body).toString('utf8');\n  throw new Error(`PDFShift ${pdfResponse.statusCode}: ${errMsg}`);\n}\n\n// ── 6. Return PDF binary ───────────────────────────────────────────────────\nconst buffer = Buffer.from(pdfResponse.body);\nconst binaryData = await this.helpers.prepareBinaryData(\n  buffer,\n  'answers.pdf',\n  'application/pdf'\n);\n\nreturn [{ json: { fileName: 'answers.pdf', generatedAt: date }, binary: { data: binaryData } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        480
+      ],
+      "id": "397fff87-2ff0-4038-a237-615881830f48",
+      "name": "Generate Answer PDF"
+    },
+    {
+      "parameters": {
+        "operation": "sendDocument",
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "binaryData": true,
+        "additionalFields": {
+          "caption": "✅ Your exam answers are ready!\n\n📌 Each answer is sized for its marks\n📐 Diagrams included where needed\n📝 Exam tips added to every question\n\nGood luck! 🎓",
+          "fileName": "exam_answers.pdf"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1920,
+        480
+      ],
+      "id": "a61f9437-1f8a-46b6-a746-cb5cea2f01b7",
+      "name": "Send PDF Answer",
+      "webhookId": "361135f1-7799-47b2-b897-a62b53c1626c",
+      "credentials": {
+        "telegramApi": {
+          "id": "7O55SitZRzFhorKF",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=❌ Something went wrong processing your paper.\n\n*Tips for best results:*\n• Send the image as a *File/Document* (not a photo)\n• Make sure the image is clear and well-lit\n• Avoid glare or tilted angles\n\nPlease try again 🙏",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1760,
+        832
+      ],
+      "id": "ab833cab-afd9-4be1-9b5f-e32f2363ec5c",
+      "name": "Send Error Message",
+      "webhookId": "a19de135-faff-4f69-baea-a395eb494717",
+      "credentials": {
+        "telegramApi": {
+          "id": "7O55SitZRzFhorKF",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3-flash-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a smart exam answer writer for Indian engineering and science college students.\nYou will receive a list of exam questions with their mark values. For each question, read it carefully, understand what it is actually asking, then write an answer — and decide what to include BASED ON WHAT THAT SPECIFIC QUESTION NEEDS. Do not follow a fixed template for every question.\n\n━━━━━━━━━━━━━━\nMARK-BASED LENGTH\n━━━━━━━━━━━━━━\n2 marks  → 4–6 lines only. Short, precise.\n5 marks  → 12–16 lines. Moderate depth.\n10 marks → Full 1.5 pages. Detailed with examples.\n13 marks → 3–4 pages. Thorough — derivation, applications, depth.\n15 marks → 4–5 pages. Maximum depth + comparisons.\n\n━━━━━━━━━━━━━━\nADAPTIVE CONTENT RULES\n━━━━━━━━━━━━━━\nFor each question, decide independently:\n\nDIAGRAM → Only if the question involves a process, circuit, architecture, system, \n           flowchart, waveform, graph, or physical structure. If diagram genuinely \n           helps understand the answer, include it. If it is a pure definition or \n           derivation question with no visual component, skip it.\n\nFORMULA → Only if the question involves equations, calculations, laws, or \n           mathematical derivation. Write formulas using HTML <sub>, <sup>, and \n           &times; &alpha; &beta; &omega; &Delta; entities. Skip for conceptual \n           or descriptive questions.\n\nTIPS → Only if the question is commonly mishandled, has a tricky structure, or has \n       a mark-earning pattern that students often miss. For simple 2-mark questions, \n       a tip is usually not needed. For 10+ mark questions, always include one.\n\n━━━━━━━━━━━━━━\nSVG DIAGRAM SPEC (when needed)\n━━━━━━━━━━━━━━\n- viewBox: 0 0 520 260\n- Boxes: fill appropriate soft background, stroke a calm accent color\n- Text: font-family Arial, font-size 13\n- Choose a color tone that fits the subject mood:\n    Engineering/Electronics → cool teal-slate\n    Biology/Life sciences   → soft green-cream\n    Physics/Math            → clean indigo-white\n    Chemistry               → warm amber-neutral\n    Computer Science        → deep blue-grey\n- Every shape must have a text label. Add a diagram title at the top.\n- Keep diagrams clean — not crowded. Only show what is essential.\n\n━━━━━━━━━━━━━━\nHTML OUTPUT RULES\n━━━━━━━━━━━━━━\n- Output ONLY inner HTML body content. No <html>, <head>, <body>, or <!DOCTYPE>.\n- No markdown, no code fences, no explanation outside HTML.\n- Wrap each question's answer in:\n\n<div class=\"q-block\">\n\n  <div class=\"q-header\">\n    <h2>Q[N]. [Question text]</h2>\n    <span class=\"mark-tag\">[X] Marks</span>\n  </div>\n\n  <div class=\"q-answer\">\n    [Answer content here — paragraphs, lists, SVG, formulas — only what is needed]\n  </div>\n\n  [If tip is warranted:]\n  <div class=\"q-tip\">\n    <strong>📝 Exam Tip:</strong>\n    [1–3 lines only: what earns marks, how to start, what to avoid]\n  </div>\n\n</div>\n\n━━━━━━━━━━━━━━\nHERE ARE THE QUESTIONS:\n━━━━━━━━━━━━━━\n\nQuestions  {{ $json.content.parts[0].text }}\n"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        656
+      ],
+      "id": "3b1a3dd4-1306-43da-9f2a-f35d1e7c997c",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "txHH9FO9QnEElQiK",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get a file",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Waiting Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a file": {
+      "main": [
+        [
+          {
+            "node": "Analyze Question Paper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Question Paper": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Answer PDF": {
+      "main": [
+        [
+          {
+            "node": "Send PDF Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Generate Answer PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "8a7eab63-7d6e-42a1-b861-1a4f40f3dac4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2ea703eb49a104017024c0d1d3790df262343d21a180eef2d8631f5120363ccb"
+  },
+  "id": "41Y8VABzPt768Idi",
+  "tags": []
+}

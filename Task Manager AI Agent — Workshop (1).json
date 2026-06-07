@@ -1,0 +1,344 @@
+{
+  "name": "Task Manager AI Agent — Workshop",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "331b5e3c-dcfd-4590-8591-5cc76dfb9585",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -192,
+        160
+      ],
+      "webhookId": "f0e9d8c7-0001-4001-8001-000000000001",
+      "notes": "PRIMARY: Use this for quick in-browser testing. Disable when switching to Telegram."
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "9c204ade-fc58-40b2-a50c-46d63c87d1ef",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -192,
+        -32
+      ],
+      "webhookId": "f0e9d8c7-0002-4002-8002-000000000002",
+      "credentials": {
+        "telegramApi": {
+          "id": "7O55SitZRzFhorKF",
+          "name": "Telegram account"
+        }
+      },
+      "disabled": true,
+      "notes": "OPTIONAL: Enable this + 'Send Telegram Reply' node for Telegram bot integration. Add your Bot Token credential."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.chatInput ?? $json.message?.text }}",
+        "options": {
+          "systemMessage": "You are a smart and friendly personal task manager assistant.\n\nYou have exactly 4 tools available:\n\n1. create_task — Add a brand new task to the list. Use when user says: 'add', 'create', 'save', 'remind me to', 'I need to', etc.\n\n2. list_tasks — Fetch all tasks with their IDs and done/pending status. Use when: user asks what tasks they have, OR you need an ID before calling complete_task or delete_task.\n\n3. complete_task — Mark a task as DONE. Use when user says: 'done', 'completed', 'finished', 'mark as done', etc. ⚠️ Needs task_id — call list_tasks first if you only know the task name.\n\n4. delete_task — Permanently remove a task. Use when user says: 'delete', 'remove', 'clear', 'get rid of'. ⚠️ Needs task_id — call list_tasks first if you only know the task name.\n\nResponse rules:\n- Always confirm what you did in 1–2 sentences max.\n- Format task lists with ✅ for done tasks and ⬜ for pending tasks.\n- When completing or deleting by name: ALWAYS call list_tasks first, match by title, THEN act.\n- If a message is ambiguous (e.g. 'done with it'), ask one short clarifying question.\n- Never make up task IDs. Only use IDs returned by list_tasks."
+        }
+      },
+      "id": "405c12ea-3de2-404f-8003-8b6af7dc570f",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        224,
+        64
+      ],
+      "notes": "Tools Agent with Gemini + Memory + 4 HTTP tools wired below."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "7860cc38-9f4c-4856-8542-96f5f8fe97fb",
+      "name": "Send Telegram Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        -32
+      ],
+      "webhookId": "3b662a20-bec3-4135-9ad9-e68517256f07",
+      "disabled": true,
+      "notes": "OPTIONAL: Enable this when using Telegram Trigger. Sends agent output back to user."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://task-management-898555939324.europe-west1.run.app/tasks",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"title\": \"{title}\"}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "title",
+              "description": "The title or description of the new task to create. Should be a clear, concise description of what needs to be done.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "0de5e4ec-b2fa-4f94-a9dc-eab43df389c3",
+      "name": "Create Task",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        320,
+        560
+      ],
+      "notes": "POST /tasks — Creates a task. Needs: title"
+    },
+    {
+      "parameters": {
+        "url": "https://task-management-898555939324.europe-west1.run.app/tasks"
+      },
+      "id": "7af844eb-7d53-4e83-9bff-bf9b6101fdcc",
+      "name": "List Tasks",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        192,
+        528
+      ],
+      "notes": "GET /tasks — No params needed. Returns array of all tasks."
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "https://task-management-898555939324.europe-west1.run.app/tasks/{task_id}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "task_id",
+              "description": "The 8-character unique ID of the task to mark as completed. This comes from the 'id' field returned by list_tasks. Example: 'a3f9b1c2'",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "75bfc26e-df0b-4d77-88b9-a026a41248f8",
+      "name": "Complete Task",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        544
+      ],
+      "notes": "PATCH /tasks/{task_id} — Marks task done. Needs task_id from list_tasks."
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "https://task-management-898555939324.europe-west1.run.app/tasks/{task_id}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "task_id",
+              "description": "The 8-character unique ID of the task to permanently delete. This comes from the 'id' field returned by list_tasks. Example: 'a3f9b1c2'",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "8fc0d5f5-d520-4695-aef7-b0af4a3eeba9",
+      "name": "Delete Task",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        688,
+        528
+      ],
+      "notes": "DELETE /tasks/{task_id} — Removes task permanently. Needs task_id from list_tasks."
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        16,
+        400
+      ],
+      "id": "3954ba27-4d99-418a-b03a-eff878d0d4be",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "txHH9FO9QnEElQiK",
+          "name": "Google Gemini(PaLM) Api account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Calendar', ``, 'string') }}",
+          "mode": "id",
+          "__regex": "(^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*)"
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        784,
+        320
+      ],
+      "id": "bb04c3c8-3fc5-4682-959c-300c69f5750d",
+      "name": "Create an event in Google Calendar",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "25NezQ4SAmqi2rZo",
+          "name": "Google Calendar account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Task": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Tasks": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Task": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Task": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event in Google Calendar": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ffecaaa2-74e4-4000-9032-933b19bcb17a",
+  "meta": {
+    "instanceId": "2ea703eb49a104017024c0d1d3790df262343d21a180eef2d8631f5120363ccb"
+  },
+  "id": "VQP1S9TaPneCxyAX",
+  "tags": [
+    {
+      "updatedAt": "2026-06-06T09:29:48.255Z",
+      "createdAt": "2026-06-06T09:29:48.255Z",
+      "id": "28KH8OjaVvYajJuo",
+      "name": "Workshop"
+    },
+    {
+      "updatedAt": "2026-06-06T09:29:48.251Z",
+      "createdAt": "2026-06-06T09:29:48.251Z",
+      "id": "HROLCkoBFW4ZfIKN",
+      "name": "AI Agent"
+    }
+  ]
+}
